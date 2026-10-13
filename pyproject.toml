@@ -46,7 +46,7 @@ Issues = "https://github.com/Test2049micro/a6700-raw-developer/issues"
 a6700_rawsmith = "a6700_rawsmith:_main"
 
 [tool.setuptools]
-py_modules = ["a6700_rawsmith"]
+py-modules = ["a6700_rawsmith"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
