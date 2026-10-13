@@ -7,7 +7,24 @@ name = "a6700_rawsmith"
 version = "0.1.0"
 description = "AI-friendly RAW developer for Sony α6700 ARW files with JSON recipes"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.10"
+authors = [
+    {name = "a6700_rawsmith contributors"},
+]
+keywords = ["raw", "arw", "sony", "a6700", "photo", "developer", "lut", "recipes"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
 dependencies = [
     "numpy>=1.24",
     "pillow>=10.0",
@@ -19,6 +36,14 @@ dependencies = [
 dev = [
     "pytest>=7.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Test2049micro/a6700-raw-developer"
+Repository = "https://github.com/Test2049micro/a6700-raw-developer"
+Issues = "https://github.com/Test2049micro/a6700-raw-developer/issues"
+
+[project.scripts]
+a6700_rawsmith = "a6700_rawsmith:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
