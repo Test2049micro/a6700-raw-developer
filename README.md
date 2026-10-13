@@ -176,3 +176,7 @@ For camera control (USB remote shooting), see `a6700_tool.py` in the same direct
 - [ ] Temperature/tint calibration for α6700 sensor
 - [ ] Batch develop command
 - [ ] Recipe diff/merge tool
+
+## Credits
+
+Thanks to my friend for the skill that inspired parts of this project.
