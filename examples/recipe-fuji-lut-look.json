@@ -1,0 +1,11 @@
+{
+  "exposure": 0.0,
+  "contrast": 5,
+  "saturation": -10,
+  "vibrance": 5,
+  "a6700": {
+    "creative_look": "FL",
+    "picture_profile": "PP3",
+    "fuji_lut_path": "examples/luts/etalog.cube"
+  }
+}
