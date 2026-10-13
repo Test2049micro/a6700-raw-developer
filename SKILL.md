@@ -18,7 +18,7 @@ Requires Python >= 3.10. On first run, `rawpy` will pull in `libraw` automatical
 
 ```bash
 # Run the test suite
-python -m pytest a6700_rawsmith/tests -q
+python -m pytest tests -q
 
 # Generate a synthetic test image and develop it
 python -m a6700_rawsmith test --size 1200
