@@ -1,125 +1,59 @@
-# a6700_rawsmith
+# a6700_rawsmith — agent skill
 
-AI-friendly RAW developer for Sony α6700 ARW files, inspired by [rawsmith](https://github.com/Lewin671/rawsmith).
+AI-friendly RAW developer for **Sony α6700** ARW files. Python sister project to
+[rawsmith](https://github.com/Lewin671/rawsmith) (a Rust engine that avoids
+LibRaw); this one is **LibRaw-backed via rawpy** and adds a Fujifilm `.cube` LUT
+look. Recipes are interchangeable with rawsmith.
 
-## Why this exists
-
-rawsmith only supports Sony A7 IV. This package targets the α6700's ARW files and adds a Python API, Pillow fallback for testing, and an agent-friendly JSON recipe system.
-
-## Install
-
-```bash
-pip install a6700_rawsmith
-```
-
-Requires Python >= 3.10. On first run, `rawpy` will pull in `libraw` automatically.
-
-## Quick start
+## Every command prints JSON · 所有命令输出 JSON
 
 ```bash
-# Run the test suite
-python -m pytest tests -q
-
-# Generate a synthetic test image and develop it
-python -m a6700_rawsmith test --size 1200
-
-# Develop a real ARW file
-python -m a6700_rawsmith develop DSC01234.ARW -o preview.jpg
-
-# Auto-develop with a conservative starting recipe
-python -m a6700_rawsmith auto DSC01234.ARW -o preview.jpg
-
-# Inspect RAW metadata
-python -m a6700_rawsmith inspect DSC01234.ARW
-
-# Print the recipe schema
-python -m a6700_rawsmith schema
+a6700_rawsmith develop FILE.ARW -o preview.jpg [--recipe r.json] [--set exposure=0.3] [--size 1400]
+a6700_rawsmith auto FILE.ARW -o preview.jpg          # conservative starting recipe
+a6700_rawsmith inspect FILE.ARW                       # sizes, WB, ISO/shutter/aperture/focal
+a6700_rawsmith schema                                 # full recipe schema + defaults
+a6700_rawsmith to-rawsmith recipe.json                # → rawsmith-compatible recipe
+a6700_rawsmith from-rawsmith rawsmith.json            # → a6700 recipe
+a6700_rawsmith test                                   # synthetic scene, no camera needed
 ```
 
-## Python API
+## The edit loop · 编辑循环
 
-```python
-from a6700_rawsmith import develop, make_test_arw, SCHEMA
+1. `auto` a file → read the returned `stats` and look at `preview.jpg`.
+2. Change recipe values (or `--set key=value`), `develop` again.
+3. Compare `stats.tones` / `clipped_highlights_pct` / `zones` to judge the edit.
+4. Repeat until the picture is right. The RAW is never modified — only the
+   recipe changes.
 
-# Generate a synthetic test image (no camera needed)
-make_test_arw("/tmp/test_scene.jpg", width=6016, height=4000)
+### What `stats` tells you · stats 的含义
 
-# Develop with a recipe
-result = develop(
-    "/tmp/test_scene.jpg",
-    recipe={"exposure": 0.3, "shadows": 20, "vibrance": 15},
-    out="/tmp/preview.jpg",
-    size=1400,
-)
+- `tones.p50/p95/spread` — luminance percentiles (0–100); p50 near 18 ≈ mid-grey.
+- `clipped_highlights_pct` / `crushed_shadows_pct` — % of pixels blown/crushed.
+- `zones` — 3×3 brightness grid, top-left → bottom-right.
 
-print(result.stats)
-print(result.warnings)
-```
+### Warnings are not hidden · 警告不隐藏
 
-## Recipe format
+`result.warnings` lists unknown recipe keys, white-balance fallbacks, and
+**LUT failures** (a bad `.cube` path is reported, never silently swallowed).
+Always read `warnings` before trusting a preview.
 
-Recipes are JSON objects with adjustment parameters. Only changed parameters need to be specified; defaults are merged automatically.
+## Recipe knobs · 可调参数
 
-```json
-{
-  "exposure": 0.2,
-  "highlights": -30,
-  "shadows": 25,
-  "whites": 10,
-  "blacks": -5,
-  "contrast": 15,
-  "clarity": 30,
-  "dehaze": 10,
-  "saturation": 5,
-  "vibrance": 15,
-  "sharpness": 50,
-  "crop": {
-    "top": 0.05,
-    "bottom": 0.95,
-    "left": 0.0,
-    "right": 1.0
-  },
-  "a6700": {
-    "creative_look": "ST",
-    "picture_profile": "PP3"
-  }
-}
-```
+Tone: `exposure` (−5..5), `highlights`/`shadows`/`whites`/`blacks`/`contrast`
+(−100..100). Local: `clarity`, `dehaze` (−100..100). Colour: `saturation`,
+`vibrance`, `temperature` (2000..10000K), `tint`, `hsl` (per-band),
+`grade` (split tone). Detail: `sharpness`, `denoise` (0..100). Geometry:
+`rotate`, `crop`. Look: `a6700.fuji_lut_path` (`.cube`). See `a6700_rawsmith
+schema` for the authoritative list.
 
-See `SCHEMA` or `recipe_schema()` for the full schema with all parameters and defaults.
+## Limits to state honestly · 如实告知的边界
 
-## Testing without a camera
+- White balance is a bounded approximation, not a full chromaticity solve.
+- No lens distortion/vignetting correction.
+- Adjustments run in scene-linear space; output is sRGB 8-bit preview.
 
-`make_test_arw()` generates a synthetic gradient scene at full α6700 resolution (6016×4000). For non-RAW files, `develop()` falls back to Pillow automatically, making it easy to test the full pipeline without rawpy.
+## Testing without a camera · 无相机测试
 
-```python
-from a6700_rawsmith import make_test_arw, develop
-
-test_path = "/tmp/synthetic.jpg"
-make_test_arw(test_path, width=800, height=600)
-result = develop(test_path, {"exposure": 0.5}, "/tmp/out.jpg")
-```
-
-## Integration with a6700_tool.py
-
-For camera control (USB remote shooting), see `a6700_tool.py` in the same repo. The typical workflow:
-
-1. Use `a6700_tool.py` to set camera parameters via gphoto2
-2. Capture ARW files to disk
-3. Use `a6700_rawsmith` to develop them with recipes
-
-## Roadmap
-
-- [ ] Real ARW file testing with α6700
-- [ ] Fujifilm LUT 3D application pipeline (`.cube` LUTs)
-- [ ] Temperature/tint calibration for α6700 sensor
-- [ ] Batch develop command
-- [ ] Recipe diff/merge tool
-
-## Acknowledgements
-
-Thanks to my friend, whose skill and prior work on `rawsmith` inspired and informed this project. This package builds on that foundation — any credit for the ideas belongs to them, and any bugs here are mine.
-
-## License
-
-MIT
+`make_test_image()` returns a synthetic raster (not a real RAW). Real-α6700
+decode tests skip unless `A6700_SAMPLE` points at an ARW (fetch a CC0 sample via
+`scripts/fetch_sample.sh`).

@@ -141,17 +141,22 @@ def _trilinear_sample(lut: CubeLUT, rgb: np.ndarray) -> np.ndarray:
     i0 = np.floor(idx).astype(np.int32)
     i1 = np.minimum(i0 + 1, size - 1)
     frac = idx - i0  # fractional part
+    # Keep the trailing channel axis so (H,W,3) weights broadcast against the
+    # (H,W,3) corner samples; a bare (H,W) would fail to align.
+    f0 = frac[..., 0:1]
+    f1 = frac[..., 1:2]
+    f2 = frac[..., 2:3]
 
     # Trilinear interpolation: 8 corners
     out = (
-        data[i0[..., 0], i0[..., 1], i0[..., 2]] * (1 - frac[..., 0]) * (1 - frac[..., 1]) * (1 - frac[..., 2])
-        + data[i1[..., 0], i0[..., 1], i0[..., 2]] * frac[..., 0] * (1 - frac[..., 1]) * (1 - frac[..., 2])
-        + data[i0[..., 0], i1[..., 1], i0[..., 2]] * (1 - frac[..., 0]) * frac[..., 1] * (1 - frac[..., 2])
-        + data[i0[..., 0], i0[..., 1], i1[..., 2]] * (1 - frac[..., 0]) * (1 - frac[..., 1]) * frac[..., 2]
-        + data[i1[..., 0], i1[..., 1], i0[..., 2]] * frac[..., 0] * frac[..., 1] * (1 - frac[..., 2])
-        + data[i1[..., 0], i0[..., 1], i1[..., 2]] * frac[..., 0] * (1 - frac[..., 1]) * frac[..., 2]
-        + data[i0[..., 0], i1[..., 1], i1[..., 2]] * (1 - frac[..., 0]) * frac[..., 1] * frac[..., 2]
-        + data[i1[..., 0], i1[..., 1], i1[..., 2]] * frac[..., 0] * frac[..., 1] * frac[..., 2]
+        data[i0[..., 0], i0[..., 1], i0[..., 2]] * (1 - f0) * (1 - f1) * (1 - f2)
+        + data[i1[..., 0], i0[..., 1], i0[..., 2]] * f0 * (1 - f1) * (1 - f2)
+        + data[i0[..., 0], i1[..., 1], i0[..., 2]] * (1 - f0) * f1 * (1 - f2)
+        + data[i0[..., 0], i0[..., 1], i1[..., 2]] * (1 - f0) * (1 - f1) * f2
+        + data[i1[..., 0], i1[..., 1], i0[..., 2]] * f0 * f1 * (1 - f2)
+        + data[i1[..., 0], i0[..., 1], i1[..., 2]] * f0 * (1 - f1) * f2
+        + data[i0[..., 0], i1[..., 1], i1[..., 2]] * (1 - f0) * f1 * f2
+        + data[i1[..., 0], i1[..., 1], i1[..., 2]] * f0 * f1 * f2
     )
     return np.clip(out, 0, 1)
 

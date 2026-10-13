@@ -25,5 +25,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+      - name: Fetch CC0 α6700 sample (best-effort)
+        run: bash scripts/fetch_sample.sh || echo "sample unavailable; RAW tests will skip"
       - name: Run tests
         run: python -m pytest tests -q
