@@ -53,5 +53,8 @@ Thumbs.db
 *.dng
 *.tif
 *.tiff
-!tests/fixtures/**
 !docs/images/**
+# CC0 RAW test samples are fetched by scripts/fetch_sample.sh, never committed.
+# (Re-ignore even though a blanket !tests/fixtures/** might otherwise un-ignore.)
+tests/fixtures/*.ARW
+tests/fixtures/*.arw

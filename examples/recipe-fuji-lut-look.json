@@ -6,6 +6,6 @@
   "a6700": {
     "creative_look": "FL",
     "picture_profile": "PP3",
-    "fuji_lut_path": "examples/luts/etalog.cube"
+    "fuji_lut_path": "examples/luts/fuji_classic_chrome.cube"
   }
 }

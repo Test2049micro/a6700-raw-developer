@@ -16,9 +16,19 @@ from a6700_rawsmith import (  # noqa: E402
     _compute_stats,
     _process_rgb,
     develop,
+    from_rawsmith_recipe,
     make_test_arw,
+    make_test_image,
     recipe_schema,
+    to_rawsmith_recipe,
 )
+
+# A real Sony α6700 ARW, if available locally. raw.pixls.us hosts CC0 samples;
+# see scripts/fetch_sample.sh. When absent, RAW-decode tests are skipped so the
+# suite still runs in CI without a 43 MB download.
+SAMPLE_ARW = os.environ.get("A6700_SAMPLE", os.path.join(os.path.dirname(__file__), "fixtures", "ILCE-6700.ARW"))
+HAS_SAMPLE = os.path.exists(SAMPLE_ARW)
+needs_sample = pytest.mark.skipif(not HAS_SAMPLE, reason="real α6700 ARW sample not present (set A6700_SAMPLE or run scripts/fetch_sample.sh)")
 
 
 def test_recipe_schema_returns_dict():
@@ -119,3 +129,102 @@ def test_develop_result_to_dict_serializable():
     assert d["warnings"] == ["test warning"]
     # Ensure JSON serializable
     json.dumps(d)
+
+
+# ---------------------------------------------------------------------------
+# Dead-parameter regression: every schema knob must actually move pixels.
+# Guards against the pre-rewrite bug where sharpness/denoise/hsl/grade were
+# declared in SCHEMA but silently ignored by the pipeline.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("key,recipe", [
+    ("sharpness", {"sharpness": 100}),
+    ("denoise", {"denoise": 100}),
+    ("hsl", {"hsl": {"red": {"saturation": 100}}}),
+    ("grade", {"grade": {"shadows": {"hue": 200, "sat": 0.6}}}),
+    ("temperature", {"temperature": 3000}),
+])
+def test_recipe_knob_changes_output(key, recipe):
+    """Each adjustment must produce a different image than the neutral recipe."""
+    import numpy as np
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as tmp:
+        src = make_test_image(os.path.join(tmp, "s.jpg"), width=320, height=240)
+        base = os.path.join(tmp, "base.jpg")
+        changed = os.path.join(tmp, "chg.jpg")
+        develop(src, {}, base, size=320)
+        develop(src, recipe, changed, size=320)
+        a = np.asarray(Image.open(base), dtype=np.float32)
+        b = np.asarray(Image.open(changed), dtype=np.float32)
+        assert not np.array_equal(a, b), f"{key} is a no-op (dead parameter regression)"
+
+
+def test_make_test_image_alias_exists():
+    """make_test_arw stays as a backwards-compatible alias for make_test_image."""
+    assert make_test_arw is make_test_image
+
+
+# ---------------------------------------------------------------------------
+# White balance: monotonic in colour temperature, no divergence.
+# ---------------------------------------------------------------------------
+
+def test_white_balance_monotonic():
+    import numpy as np
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as tmp:
+        src = make_test_image(os.path.join(tmp, "s.jpg"), width=240, height=160)
+        rbs = []
+        for k in (2500, 4500, 6500, 8500):
+            out = os.path.join(tmp, f"wb{k}.jpg")
+            develop(src, {"temperature": k}, out, size=240)
+            px = np.asarray(Image.open(out), dtype=np.float32)
+            rbs.append(float(px[..., 0].mean() - px[..., 2].mean()))
+        # R-B must increase monotonically with temperature (warm target -> cooler image)
+        assert all(rbs[i] < rbs[i + 1] for i in range(len(rbs) - 1)), f"WB not monotonic: {rbs}"
+
+
+# ---------------------------------------------------------------------------
+# rawsmith recipe interoperability.
+# ---------------------------------------------------------------------------
+
+def test_to_rawsmith_recipe_only_shared_keys():
+    recipe = {"exposure": 0.5, "shadows": 30, "vibrance": 25, "crop": {"top": 0.1, "bottom": 0.9},
+              "temperature": 3200, "hsl": {"red": {"hue": 10}}, "a6700": {"picture_profile": "PP11"}}
+    rs = to_rawsmith_recipe(recipe)
+    assert rs["rawsmith"] == "0.1.0"
+    assert rs["exposure"] == 0.5
+    assert rs["shadows"] == 30
+    assert "crop" in rs and rs["crop"]["top"] == 0.1
+    # a6700-only extensions must not leak into a rawsmith recipe
+    assert "temperature" not in rs
+    assert "hsl" not in rs
+    assert "a6700" not in rs
+
+
+def test_recipe_roundtrip_preserves_shared():
+    original = {"exposure": 0.3, "highlights": -20, "shadows": 40, "contrast": 10, "vibrance": 15}
+    back = from_rawsmith_recipe(to_rawsmith_recipe(original))
+    for k, v in original.items():
+        assert back[k] == v, f"{k} lost in round-trip"
+
+
+# ---------------------------------------------------------------------------
+# Real α6700 RAW decode (skipped unless a sample is present).
+# ---------------------------------------------------------------------------
+
+@needs_sample
+def test_real_arw_develops():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "real.jpg")
+        result = develop(SAMPLE_ARW, {"exposure": 0.2, "vibrance": 15}, out, size=800)
+        assert os.path.exists(out)
+        assert result.raw_metadata["sizes"]["image_width"] > 4000
+        assert result.warnings == []
+
+
+@needs_sample
+def test_real_arw_inspect_no_crash():
+    """Regression: develop/inspect crashed on real ARW because rawpy returns
+    white-balance as a list, not a dict (.items() raised AttributeError)."""
+    result = develop(SAMPLE_ARW, {}, "/tmp/_real_inspect.jpg", size=400)
+    assert isinstance(result.raw_metadata["daylight_whitebalance"], list)
