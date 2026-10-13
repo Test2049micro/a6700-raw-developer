@@ -99,6 +99,11 @@ class CubeLUT:
             )
 
         arr = np.array(entries, dtype=np.float32).reshape(size, size, size, 3)
+        # .cube stores rows with red changing fastest, so the reshape yields a
+        # [B, G, R, channel] layout. The sampler indexes data[R, G, B], so
+        # transpose the spatial axes. (Identity LUTs are symmetric and mask
+        # this bug; asymmetric LUTs expose it.)
+        arr = arr.transpose(2, 1, 0, 3)
         return CubeLUT(
             title=title,
             size=size,
