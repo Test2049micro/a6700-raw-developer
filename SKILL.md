@@ -116,6 +116,10 @@ For camera control (USB remote shooting), see `a6700_tool.py` in the same repo. 
 - [ ] Batch develop command
 - [ ] Recipe diff/merge tool
 
+## Acknowledgements
+
+Thanks to my friend, whose skill and prior work on `rawsmith` inspired and informed this project. This package builds on that foundation — any credit for the ideas belongs to them, and any bugs here are mine.
+
 ## License
 
 MIT
