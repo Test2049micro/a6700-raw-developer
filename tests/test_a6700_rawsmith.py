@@ -228,3 +228,26 @@ def test_real_arw_inspect_no_crash():
     white-balance as a list, not a dict (.items() raised AttributeError)."""
     result = develop(SAMPLE_ARW, {}, "/tmp/_real_inspect.jpg", size=400)
     assert isinstance(result.raw_metadata["daylight_whitebalance"], list)
+
+
+def test_lut_axis_order_asymmetric():
+    """A .cube that swaps R and G must map input [1,0,0] -> output [0,1,0].
+
+    Guards the [B,G,R] reshape vs data[R,G,B] indexing bug: an identity LUT is
+    symmetric and cannot catch it, so use an asymmetric one.
+    """
+    import numpy as np
+    from lut import apply_lut
+    N = 17
+    lines = ["LUT_3D_SIZE %d" % N]
+    for b in range(N):
+        for g in range(N):
+            for r in range(N):
+                lines.append("%.6f %.6f %.6f" % (g / (N - 1), r / (N - 1), b / (N - 1)))
+    with tempfile.TemporaryDirectory() as tmp:
+        p = os.path.join(tmp, "swap.cube")
+        with open(p, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        out = apply_lut(np.array([[[1.0, 0.0, 0.0]]], dtype=np.float32), p,
+                        input_srgb=False, output_srgb=False)
+        assert abs(out[0, 0, 1] - 1.0) < 0.05 and abs(out[0, 0, 0]) < 0.05
