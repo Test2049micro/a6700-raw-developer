@@ -11,6 +11,14 @@ import numpy as np
 from PIL import Image
 
 try:
+    from lut import apply_lut  # type: ignore[import]
+except ImportError:
+    try:
+        from .lut import apply_lut  # type: ignore[import]
+    except ImportError:
+        apply_lut = None  # type: ignore[assignment]
+
+try:
     import rawpy
     from rawpy import RawPy
 except ImportError:
@@ -302,6 +310,13 @@ def _process_rgb(rgb: np.ndarray, recipe: Dict[str, Any]) -> np.ndarray:
     out = _apply_temperature_tint(out, recipe.get("temperature"), recipe.get("tint"))
     out = _apply_saturation(out, int(recipe.get("saturation", 0)), int(recipe.get("vibrance", 0)))
     out = _apply_rotate(out, float(recipe.get("rotate", 0)))
+    if apply_lut is not None:
+        lut_path = recipe.get("a6700", {}).get("fuji_lut_path") if isinstance(recipe.get("a6700"), dict) else None
+        if lut_path:
+            try:
+                out = apply_lut(out, lut_path, input_srgb=True, output_srgb=True)
+            except Exception as exc:  # pragma: no cover - best-effort LUT
+                pass
     return out
 
 
