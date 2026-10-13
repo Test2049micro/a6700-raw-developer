@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import json
-import math
 import os
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from PIL import Image
@@ -220,6 +219,29 @@ def _apply_clarity(rgb: np.ndarray, clarity: float) -> np.ndarray:
     return out
 
 
+def _apply_rotate(rgb: np.ndarray, angle_deg: float) -> np.ndarray:
+    if angle_deg == 0:
+        return rgb
+    from scipy.ndimage import rotate
+
+    return rotate(rgb, angle_deg, reshape=False, order=1, mode="nearest")
+
+
+def _apply_temperature_tint(rgb: np.ndarray, temperature: Optional[float], tint: Optional[float]) -> np.ndarray:
+    if temperature is None and tint is None:
+        return rgb
+    # Simple approximation: shift red/blue channels by temperature, green by tint
+    out = rgb.astype(np.float32).copy()
+    if temperature is not None:
+        t = (float(temperature) - 6500.0) / 6500.0
+        out[:, :, 0] = np.clip(out[:, :, 0] + t * 0.1, 0, 1)
+        out[:, :, 2] = np.clip(out[:, :, 2] - t * 0.1, 0, 1)
+    if tint is not None:
+        tn = float(tint) / 100.0
+        out[:, :, 1] = np.clip(out[:, :, 1] + tn * 0.05, 0, 1)
+    return out
+
+
 def _compute_stats(rgb: np.ndarray) -> Dict[str, Any]:
     """Compute development stats from an RGB array (0-1 float)."""
     lum = np.mean(rgb, axis=2)
@@ -277,7 +299,9 @@ def _process_rgb(rgb: np.ndarray, recipe: Dict[str, Any]) -> np.ndarray:
     out = _apply_curve_contrast(out, float(recipe.get("contrast", 0)))
     out = _apply_dehaze(out, int(recipe.get("dehaze", 0)))
     out = _apply_clarity(out, int(recipe.get("clarity", 0)))
+    out = _apply_temperature_tint(out, recipe.get("temperature"), recipe.get("tint"))
     out = _apply_saturation(out, int(recipe.get("saturation", 0)), int(recipe.get("vibrance", 0)))
+    out = _apply_rotate(out, float(recipe.get("rotate", 0)))
     return out
 
 
