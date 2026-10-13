@@ -1,0 +1,17 @@
+{
+  "exposure": 0.2,
+  "highlights": -20,
+  "shadows": 25,
+  "whites": 10,
+  "blacks": -5,
+  "contrast": 10,
+  "clarity": 20,
+  "dehaze": 5,
+  "saturation": -5,
+  "vibrance": 15,
+  "sharpness": 50,
+  "a6700": {
+    "creative_look": "ST",
+    "picture_profile": "PP3"
+  }
+}

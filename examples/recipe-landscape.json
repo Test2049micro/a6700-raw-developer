@@ -1,0 +1,14 @@
+{
+  "exposure": 0.1,
+  "highlights": -10,
+  "shadows": 15,
+  "contrast": 15,
+  "clarity": 30,
+  "saturation": 10,
+  "vibrance": 10,
+  "sharpness": 45,
+  "a6700": {
+    "creative_look": "VV",
+    "picture_profile": "PP3"
+  }
+}
