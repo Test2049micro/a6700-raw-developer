@@ -680,7 +680,13 @@ def develop(
     # Adjustments in scene-linear space.
     rgb_linear = _process_rgb_linear(rgb_linear, recipe)
 
-    # Fujifilm LUT look (a6700 extension) — errors are surfaced, not swallowed.
+    # Map to sRGB gamma only at the end.
+    rgb_srgb = linear_to_srgb(rgb_linear)
+
+    # Fujifilm LUT look (a6700 extension) — applied in sRGB/display space,
+    # which is how .cube LUTs are authored; feeding linear values here would
+    # mis-map hues (e.g. a blue sky turning orange). Errors are surfaced, not
+    # swallowed.
     a6700 = recipe.get("a6700") if isinstance(recipe.get("a6700"), dict) else {}
     lut_path = a6700.get("fuji_lut_path")
     if lut_path:
@@ -688,12 +694,9 @@ def develop(
             warnings.append("fuji_lut_path set but lut module unavailable; LUT skipped")
         else:
             try:
-                rgb_linear = apply_lut(rgb_linear, lut_path, input_srgb=False, output_srgb=False)
+                rgb_srgb = apply_lut(rgb_srgb, lut_path, input_srgb=False, output_srgb=False)
             except Exception as exc:
                 warnings.append(f"LUT application failed: {exc}")
-
-    # Map to sRGB gamma only at the end.
-    rgb_srgb = linear_to_srgb(rgb_linear)
 
     # Geometry last (on gamma-encoded pixels is fine for preview).
     rgb_srgb = _apply_rotate(rgb_srgb, float(recipe.get("rotate", 0)))
