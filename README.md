@@ -109,7 +109,45 @@ Recipes are JSON objects with adjustment parameters. Only changed parameters nee
 | `grade` | object | shadows/highlights hue+sat | {} |
 | `a6700.creative_look` | string | ST/PT/NT/VV/VV2/FL/IN/SH/BW/SE | - |
 | `a6700.picture_profile` | string | PP1-6/10/11 | - |
-| `a6700.fuji_lut_path` | string | path to .cube LUT | - |
+| `rotate` | number | -45 to 45 degrees | 0 |
+| `a6700.fuji_lut_path` | string | path to `.cube` LUT | - |
+
+## Adjustments
+
+### Rotation
+
+Use `rotate` to correct horizon or composition without leaving the RAW pipeline:
+
+```json
+{
+  "rotate": 1.5
+}
+```
+
+The rotation is applied in linear RGB before preview save, using nearest-edge interpolation.
+
+### Temperature and tint
+
+`temperature` is expressed in Kelvin, and `tint` is a simplified green-magenta shift. These are lightweight channel-shift approximations, not full RAW processor WB curves:
+
+```json
+{
+  "temperature": 6500,
+  "tint": 10
+}
+```
+
+### Fujifilm LUT
+
+If you have a `.cube` LUT, point `a6700.fuji_lut_path` to it. The LUT is applied in sRGB space and failures are swallowed silently so recipes stay portable across machines:
+
+```json
+{
+  "a6700": {
+    "fuji_lut_path": "/Users/f/LUTs/FujiClassic.cube"
+  }
+}
+```
 
 ## Testing without a camera
 
