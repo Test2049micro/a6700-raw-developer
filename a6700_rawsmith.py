@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import json
 import os
+import copy
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -516,7 +518,7 @@ def _resize_to_size(rgb: np.ndarray, size: int) -> np.ndarray:
     if long <= size or size <= 0:
         return rgb
     scale = size / long
-    img = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8))
+    img = Image.fromarray(_rgb_to_u8(rgb))
     img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
     return np.asarray(img, dtype=np.float32) / 255.0
 
@@ -542,7 +544,7 @@ def _apply_rotate(rgb: np.ndarray, angle_deg: float) -> np.ndarray:
 def _save_preview(rgb: np.ndarray, out_path: str, size: int = 1400) -> str:
     """Save RGB preview (float 0-1), resizing to fit within `size` long edge."""
     rgb = _resize_to_size(rgb, size) if size and max(rgb.shape[:2]) > size else rgb
-    img = Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8))
+    img = Image.fromarray(_rgb_to_u8(rgb))
     img.save(out_path, quality=90, optimize=True)
     return out_path
 
@@ -573,6 +575,106 @@ def _exif_camera(path: str) -> str:
             return name or "unknown"
     except Exception:
         return "unknown"
+
+
+# One process-local preview, bounded to 64 MiB; never written to disk.
+_RAW_CACHE_LIMIT = 64 * 1024 * 1024
+_RAW_CACHE = None
+_RAW_CACHE_GENERATION = 0
+_RAW_CACHE_LOCK = threading.RLock()
+
+
+def clear_raw_cache() -> None:
+    """Release the retained RAW preview (useful between editing sessions)."""
+    global _RAW_CACHE, _RAW_CACHE_GENERATION
+    with _RAW_CACHE_LOCK:
+        _RAW_CACHE = None
+        _RAW_CACHE_GENERATION += 1
+
+
+def _raw_identity(path: str, recipe: Dict[str, Any], size: int) -> tuple:
+    source = os.path.realpath(path)
+    st = os.stat(source)
+    return (source, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns,
+            st.st_ctime_ns, size, repr(recipe.get("temperature")),
+            repr(recipe.get("tint")))
+
+
+def _decode_raw_preview(path: str, recipe: Dict[str, Any], size: int):
+    warnings: List[str] = []
+    with rawpy.imread(path) as raw:
+        daylight_wb = _wb_list(raw, "daylight_whitebalance")
+        camera_wb = _wb_list(raw, "camera_whitebalance")
+        # rawpy (this version) does not expose make/model; try PIL EXIF,
+        # and always surface the shooting parameters an assistant can reason
+        # about (ISO / shutter / aperture / focal length / timestamp).
+        other = getattr(raw, "other", None)
+        shooting: Dict[str, Any] = {}
+        if other is not None:
+            for attr in ("iso_speed", "shutter_speed", "aperture", "focal_length", "timestamp"):
+                val = getattr(other, attr, None)
+                if val is not None:
+                    shooting[attr] = str(val) if attr == "timestamp" else float(val)
+        raw_metadata = {
+            "camera": _exif_camera(path),
+            "shooting": shooting,
+            "sizes": {
+                "sensor_width": int(raw.sizes.raw_width),
+                "sensor_height": int(raw.sizes.raw_height),
+                "image_width": int(raw.sizes.width),
+                "image_height": int(raw.sizes.height),
+            },
+            "daylight_whitebalance": daylight_wb,
+            "camera_whitebalance": camera_wb,
+        }
+        user_wb, wb_warn = _kelvin_to_wb(
+            recipe.get("temperature"), recipe.get("tint"), daylight_wb
+        )
+        if wb_warn:
+            warnings.append(wb_warn)
+        # Decode to 16-bit *linear* scene values (gamma 1,1 = no tone curve).
+        rgb = raw.postprocess(
+            use_camera_wb=(user_wb is None),
+            user_wb=user_wb,
+            no_auto_bright=True,
+            output_color=rawpy.ColorSpace.sRGB,
+            output_bps=16,
+            gamma=(1.0, 1.0),
+        )
+    rgb_linear = rgb.astype(np.float32)
+    del rgb
+    rgb_linear /= 65535.0
+    rgb_linear = _resize_to_size(rgb_linear, size)
+    return rgb_linear, raw_metadata, warnings
+
+
+def _load_raw_preview(path: str, recipe: Dict[str, Any], size: int):
+    global _RAW_CACHE
+    key = _raw_identity(path, recipe, size)
+    with _RAW_CACHE_LOCK:
+        if _RAW_CACHE is not None and _RAW_CACHE[0] == key:
+            _, rgb, metadata, warnings = _RAW_CACHE
+            return rgb, copy.deepcopy(metadata), list(warnings)
+        # Release the old preview before allocating; do not serialize decodes.
+        _RAW_CACHE = None
+        generation = _RAW_CACHE_GENERATION
+    rgb, metadata, warnings = _decode_raw_preview(path, recipe, size)
+    if rgb.nbytes <= _RAW_CACHE_LIMIT and _raw_identity(path, recipe, size) == key:
+        with _RAW_CACHE_LOCK:
+            # A clear requested during decoding must remain effective.
+            if generation == _RAW_CACHE_GENERATION:
+                rgb.flags.writeable = False
+                _RAW_CACHE = (key, rgb, copy.deepcopy(metadata), tuple(warnings))
+    return rgb, metadata, warnings
+
+
+def _rgb_to_u8(rgb: np.ndarray) -> np.ndarray:
+    """Preserve clip/multiply/cast order, limiting temporary arrays to rows."""
+    out = np.empty(rgb.shape, dtype=np.uint8)
+    for top in range(0, rgb.shape[0], 128):
+        rows = slice(top, top + 128)
+        out[rows] = (np.clip(rgb[rows], 0, 1) * 255).astype(np.uint8)
+    return out
 
 
 def develop(
@@ -611,46 +713,8 @@ def develop(
     if is_raw:
         if rawpy is None:
             raise ImportError("rawpy not installed. Run: pip install rawpy")
-        with rawpy.imread(path) as raw:
-            daylight_wb = _wb_list(raw, "daylight_whitebalance")
-            camera_wb = _wb_list(raw, "camera_whitebalance")
-            # rawpy (this version) does not expose make/model; try PIL EXIF,
-            # and always surface the shooting parameters an assistant can reason
-            # about (ISO / shutter / aperture / focal length / timestamp).
-            other = getattr(raw, "other", None)
-            shooting: Dict[str, Any] = {}
-            if other is not None:
-                for attr in ("iso_speed", "shutter_speed", "aperture", "focal_length", "timestamp"):
-                    val = getattr(other, attr, None)
-                    if val is not None:
-                        shooting[attr] = str(val) if attr == "timestamp" else float(val)
-            raw_metadata = {
-                "camera": _exif_camera(path),
-                "shooting": shooting,
-                "sizes": {
-                    "sensor_width": int(raw.sizes.raw_width),
-                    "sensor_height": int(raw.sizes.raw_height),
-                    "image_width": int(raw.sizes.width),
-                    "image_height": int(raw.sizes.height),
-                },
-                "daylight_whitebalance": daylight_wb,
-                "camera_whitebalance": camera_wb,
-            }
-            user_wb, wb_warn = _kelvin_to_wb(
-                recipe.get("temperature"), recipe.get("tint"), daylight_wb
-            )
-            if wb_warn:
-                warnings.append(wb_warn)
-            # Decode to 16-bit *linear* scene values (gamma 1,1 = no tone curve).
-            rgb = raw.postprocess(
-                use_camera_wb=(user_wb is None),
-                user_wb=user_wb,
-                no_auto_bright=True,
-                output_color=rawpy.ColorSpace.sRGB,
-                output_bps=16,
-                gamma=(1.0, 1.0),
-            )
-        rgb_linear = rgb.astype(np.float32) / 65535.0
+        rgb_linear, raw_metadata, decode_warnings = _load_raw_preview(path, recipe, size)
+        warnings.extend(decode_warnings)
     else:
         warnings.append(f"Input is not a RAW file ({path}); using Pillow fallback for testing")
         img = Image.open(path).convert("RGB")
@@ -675,7 +739,8 @@ def develop(
         }
 
     # Work at preview resolution for speed; tone/colour are resolution-safe.
-    rgb_linear = _resize_to_size(rgb_linear, size)
+    if not is_raw:
+        rgb_linear = _resize_to_size(rgb_linear, size)
 
     # Adjustments in scene-linear space.
     rgb_linear = _process_rgb_linear(rgb_linear, recipe)

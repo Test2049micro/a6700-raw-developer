@@ -58,3 +58,6 @@ Thumbs.db
 # (Re-ignore even though a blanket !tests/fixtures/** might otherwise un-ignore.)
 tests/fixtures/*.ARW
 tests/fixtures/*.arw
+
+# Owner-only, idle-expiring local AI photo worker
+.a6700-runtime/

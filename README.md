@@ -191,3 +191,60 @@ ideas belongs to them; any bugs here are mine.
 ## License · 许可
 
 MIT
+
+
+### Repeated RAW edits and memory / 重复调图与内存
+
+`develop()` reuses one process-local, pre-adjustment RAW preview when the input
+file identity, modification/change timestamps, size, output size and white
+balance parameters match. Tone, LUT and geometry are always reapplied. The
+retained pixel buffer is capped at 64 MiB; larger previews and full-resolution
+images over that budget are not cached. Switching inputs releases the old cache
+before decoding the new one. No cache files are written to disk.
+
+Repeated calls in one Python process benefit; separate CLI invocations do not
+share the cache. Call `clear_raw_cache()` to release it between editing sessions:
+
+```python
+from a6700_rawsmith import develop, clear_raw_cache
+
+develop("photo.ARW", {"exposure": 0.1}, "first.jpg", size=1400)
+develop("photo.ARW", {"exposure": 0.3}, "second.jpg", size=1400)
+clear_raw_cache()
+```
+
+同一 Python 进程连续调图会复用一张调色前的预览，像素缓存上限 64 MiB，
+不写磁盘；独立启动的 CLI 不共享缓存。源文件、尺寸或白平衡改变会失效，
+调色、LUT 和几何变换仍重新执行。会话结束可用 `clear_raw_cache()` 释放。
+缓存按文件系统身份与时间戳校验，不支持在文件正被其他程序写入时进行可靠快照。
+全图转 8-bit 时按行分块，避免建立多个全尺寸临时浮点数组。
+
+Concurrent cache misses decode independently; different files are not serialized.
+同时发生的缓存未命中可各自解码，不保证并发同键请求合并；单个缓存槽仍受容量限制。
+
+
+### AI editing across commands / 跨命令复用调图缓存
+
+The session worker requires macOS or Linux; the original engine API is unchanged.
+For a local checkout with its Python dependencies installed, run the lightweight
+client instead of starting a new engine for every preview:
+
+```sh
+python a6700_session.py develop /absolute/photo.ARW --set exposure=0.1 -o first.jpg
+python a6700_session.py develop /absolute/photo.ARW --set exposure=0.3 -o second.jpg
+python a6700_session.py status
+python a6700_session.py stop
+```
+
+The first edit starts an idle-expiring worker. Later clients use an owner-only
+Unix socket and the existing 64 MiB RAM preview cache. Default idle expiry is
+600 seconds; no login item or TCP listener is registered. Replies wrap the
+engine output in `result` and add `worker` diagnostics (`pid`, `raw_decodes`,
+`cache_bytes`). `clear` releases the pixel cache; `status` never starts a worker.
+Relative LUT paths resolve in the calling directory, matching the original CLI.
+The original CLI and Python API remain available.
+
+每条客户端命令仍可独立退出，处理进程保留至空闲超时或显式 `stop`。
+源码变更后下一次编辑会更换旧 worker。请求回复丢失时先检查输出和状态，
+不要盲目重发；处理可能已经写出图片。单个 worker 顺序处理调图请求。
+`auto` 和原 CLI 一样会在输入旁写 recipe sidecar，普通迭代优先用 `develop`。
